@@ -6,6 +6,7 @@ const statusMessage = document.querySelector("#status-message");
 const results = document.querySelector("#results");
 const reportsByTicker = new Map();
 const chartColors = ["#b7f36b", "#69cbb1", "#f0bf67", "#e99163", "#a695ed"];
+let selectedReport = null;
 
 const formatRatio = (value, unit) => {
   if (value === null || value === undefined || !Number.isFinite(Number(value))) return "Not available";
@@ -56,9 +57,11 @@ function renderCreditRatios(report) {
 }
 
 function renderCompanyDetails(report) {
+  selectedReport = report;
   document.querySelector("#detail-heading-title").textContent = `Details · ${report.ticker}`;
   document.querySelector("#detail-period-label").textContent =
     `Latest annual period: ${report.latest_period} · ${report.available_periods.length} period(s) available`;
+  document.querySelector("#briefing-context").textContent = `Using ${report.ticker} ratios`;
   const ratingCard = document.querySelector(".rating-card");
   ratingCard.dataset.rating = report.earnings_quality.rating;
   document.querySelector("#rating-value").textContent = report.earnings_quality.rating;
@@ -141,6 +144,40 @@ function renderComparisonChart(reports) {
   }, chartConfig());
 }
 
+// Plot annual scores on the same year axis; null periods remain gaps rather than false zeroes.
+function renderComparisonTrendChart(reports) {
+  const chart = document.querySelector("#comparison-trend-chart");
+  if (!window.Plotly) {
+    chart.textContent = "The Plotly chart library could not be loaded. Check your internet connection.";
+    return;
+  }
+  const years = [...new Set(reports.flatMap((report) =>
+    report.history.map((period) => period.period)))].sort((first, second) => first - second);
+  const traces = reports.map((report, index) => {
+    const scoresByYear = new Map(report.history.map((period) => [period.period, period.score]));
+    return {
+      x: years.map(String),
+      y: years.map((year) => {
+        const score = scoresByYear.get(year);
+        return score === null || score === undefined ? null : Number(score) * 100;
+      }),
+      name: report.ticker,
+      type: "scatter",
+      mode: "lines+markers",
+      connectgaps: false,
+      line: { color: chartColors[index % chartColors.length], width: 2.5, shape: "spline" },
+      marker: { color: chartColors[index % chartColors.length], size: 7 },
+      hovertemplate: `${report.ticker}<br>%{x}<br>Risk score: %{y:.0f}%<extra></extra>`,
+    };
+  });
+  window.Plotly.react(chart, traces, {
+    ...chartLayout("Earnings-quality risk (%)", 100),
+    showlegend: true,
+    legend: { orientation: "h", y: 1.16, x: 0, font: { size: 10 } },
+    margin: { t: 42, r: 24, b: 48, l: 58 },
+  }, chartConfig());
+}
+
 function renderRatioChart(reports, ratioName) {
   const chart = document.querySelector("#ratio-chart");
   if (!window.Plotly) return;
@@ -213,6 +250,7 @@ function renderComparison(reports, failures) {
     : "";
 
   renderComparisonChart(reports);
+  renderComparisonTrendChart(reports);
   renderComparisonTable(reports);
 
   const selector = document.querySelector("#ratio-selector");
@@ -299,4 +337,87 @@ form.addEventListener("submit", async (event) => {
     button.disabled = false;
     button.querySelector("span:first-child").textContent = "Compare";
   }
+});
+
+// Keep the briefing assistant grounded in the displayed company's calculated ratios.
+function createChatMessage(message, role) {
+    const bubble = document.createElement("div");
+    bubble.className = `chat-message ${role}-message`;
+    bubble.textContent = message;
+    document.querySelector("#briefing-messages").append(bubble);
+    bubble.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+function getRatio(report, name) {
+    return report.credit_ratios.find((ratio) => ratio.name === name);
+}
+
+function buildRatioBriefing(report, question) {
+    if (!report) {
+      return "Run a company comparison first. I can then summarize the selected company’s earnings-quality score, annual trend, and available credit ratios.";
+    }
+
+    const normalizedQuestion = question.toLowerCase();
+    const rating = report.earnings_quality.rating;
+    const score = `${Math.round(report.earnings_quality.score * 100)}%`;
+    const currentRatio = getRatio(report, "Current ratio");
+    const debtToEquity = getRatio(report, "Debt-to-equity");
+    const cashFlowToDebt = getRatio(report, "Operating cash flow / debt");
+    const history = report.history.filter((period) => period.score !== null);
+    const firstScore = history[0];
+    const latestScore = history.at(-1);
+    const trendText = firstScore && latestScore
+      ? firstScore.period === latestScore.period
+        ? `Only ${latestScore.period} has a score to compare.`
+        : `The annual risk score moved from ${Math.round(firstScore.score * 100)}% in ${firstScore.period} to ${Math.round(latestScore.score * 100)}% in ${latestScore.period}.`
+      : "There is not enough scored annual history to describe a trend.";
+    const ratioText = [
+      currentRatio ? `Current ratio: ${formatRatio(currentRatio.value, currentRatio.unit)}.` : "Current ratio: not available.",
+      debtToEquity ? `Debt-to-equity: ${formatRatio(debtToEquity.value, debtToEquity.unit)}.` : "Debt-to-equity: not available.",
+      cashFlowToDebt ? `Operating cash flow/debt: ${formatRatio(cashFlowToDebt.value, cashFlowToDebt.unit)}.` : "Operating cash flow/debt: not available.",
+    ].join(" ");
+
+    if (/trend|history|year|change|over time/.test(normalizedQuestion)) {
+      return `${report.ticker}: ${trendText} A rising score means more of the checks were flagged; it is a screening signal, not a forecast.`;
+    }
+    if (/credit|liquid|debt|ratio|borrow|leverage/.test(normalizedQuestion)) {
+      const liquidityNote = currentRatio?.value !== null && currentRatio?.value !== undefined
+        ? currentRatio.value < 1
+          ? "The current ratio is below 1x, so short-term liquidity merits closer review."
+          : "The current ratio is above 1x; compare it with peers and the company’s own history."
+        : "Liquidity data is incomplete, so the current ratio cannot be interpreted.";
+      const leverageNote = debtToEquity?.value !== null && debtToEquity?.value !== undefined
+        ? debtToEquity.value > 2
+          ? "Debt-to-equity is above 2x; check debt maturities and sector norms."
+          : "Debt-to-equity is not above the simple 2x review threshold used in this briefing."
+        : "Debt-to-equity is unavailable.";
+      return `${report.ticker}: ${ratioText} ${liquidityNote} ${leverageNote} These are prompts for review, not universal credit limits.`;
+    }
+    return `${report.ticker} has a ${rating} earnings-quality risk rating (${score}). ${trendText} ${ratioText} Review the underlying statements and sector context before drawing conclusions; this screening summary is not a buy/sell recommendation.`;
+}
+
+const briefingPanel = document.querySelector("#briefing-panel");
+const briefingToggle = document.querySelector("#briefing-toggle");
+
+briefingToggle.addEventListener("click", () => {
+    const isOpening = briefingPanel.hidden;
+    briefingPanel.hidden = !isOpening;
+    briefingToggle.setAttribute("aria-expanded", String(isOpening));
+    if (isOpening) document.querySelector("#briefing-input").focus();
+});
+
+document.querySelector("#briefing-close").addEventListener("click", () => {
+    briefingPanel.hidden = true;
+    briefingToggle.setAttribute("aria-expanded", "false");
+    briefingToggle.focus();
+});
+
+document.querySelector("#briefing-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    const chatInput = document.querySelector("#briefing-input");
+    const question = chatInput.value.trim();
+    if (!question) return;
+    createChatMessage(question, "user");
+    createChatMessage(buildRatioBriefing(selectedReport, question), "assistant");
+    chatInput.value = "";
 });

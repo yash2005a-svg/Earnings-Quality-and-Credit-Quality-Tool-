@@ -364,6 +364,7 @@ def assess_ticker(ticker_symbol, ticker_factory=None):
             "Check the ticker (including its exchange suffix) and try again."
         )
 
+    # Keep one scored observation per Yahoo fiscal year for the annual trend charts.
     rated_records = []
     for record in records:
         rated = _rate_record(record)

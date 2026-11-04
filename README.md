@@ -18,7 +18,7 @@ app.py                     Local Flask server
 api/assessment.py          Vercel Python API and multi-ticker request handling
 public/index.html          Dashboard structure and form
 public/styles.css          Colors, responsive layout, and animations
-public/app.js              Form behavior, comparison tables, and interactive Plotly charts
+public/app.js              Form behavior, briefing assistant, comparison tables, and Plotly charts
 tests/                     Offline unit tests (no Yahoo requests)
 requirements.txt           Python package dependencies
 vercel.json                Vercel Python function configuration
@@ -234,12 +234,72 @@ values:
 - Net profit margin = net income / revenue
 - Debt / EBITDA
 
-The web dashboard uses Plotly.js charts for risk-score comparison, selectable
-credit-ratio comparison, and each selected company's annual risk trend. The
-comparison table also shows each company's latest fiscal period, rating, score,
-current ratio, debt-to-equity, and net margin. Plotly.js is loaded from its
-official CDN, so an internet connection is needed to display the interactive
+The web dashboard uses Plotly.js charts for:
+
+1. A bar chart comparing the latest earnings-quality risk score for each company.
+2. A trend-analysis line graph comparing every company's annual risk scores on a
+   shared fiscal-year axis. Each line is a separate ticker. Missing annual
+   scores are displayed as gaps, not zeros. This is a risk-score trend, not a
+   share-price trend or a prediction.
+3. A selectable credit-ratio comparison.
+4. An individual company's annual risk-score line graph.
+
+The comparison table also shows each company's latest fiscal period, rating,
+score, current ratio, debt-to-equity, and net margin. Plotly.js is loaded from
+its official CDN, so an internet connection is needed to display the interactive
 charts.
+
+## Ratio briefing chatbot
+
+The dashboard includes a chat-style assistant. It summarizes the currently
+selected company's calculated risk score, annual history, and credit ratios in
+response to prompts such as “brief this company,” “what should I watch?”, “show
+the trend,” or “explain the credit ratios.” Selecting a different company
+changes the data used for the next answer.
+
+The current assistant is intentionally **rule-based**: it summarizes values
+already returned by Ledgerly and applies transparent, simple checks such as a
+current ratio below 1x. It does not call an AI model and does not provide
+personalized investment or credit advice. This lets the chat interface work
+while a separate recommendation service is being prepared.
+
+### Connecting the recommendation API later
+
+The chat interface and briefing logic are in `public/app.js`. Once the
+recommendation API is ready, replace the `buildRatioBriefing` response path with
+a request to that API. Keep private API keys in Vercel environment variables
+and send requests from a Vercel server-side function—not browser JavaScript—so
+secrets are not exposed to visitors. To connect it correctly, the project will
+need the API URL, expected JSON request fields, response shape, and
+authentication method. Until those details are supplied, the rule-based
+briefing remains the working fallback.
+
+### Optional Gemini API setup for a future AI briefing
+
+The current Vercel deployment does **not** make AI calls: setting an environment
+variable alone will not change the rule-based chat. First, a server-side chat
+endpoint must be implemented to read the key and call Gemini. After that endpoint
+is deployed, configure the key as follows:
+
+1. Create a Gemini API key in [Google AI Studio](https://aistudio.google.com/api-keys).
+   Review Google's current free-tier quotas and data-use terms before sending
+   company data.
+2. Open the Ledgerly project in Vercel and select **Settings → Environment
+   Variables**.
+3. Add a variable named `GEMINI_API_KEY`, paste the key as its value, and select
+   the environments where the chat endpoint will run (usually **Production**;
+   add **Preview** if preview deployments need AI chat too).
+4. Save the variable and redeploy the project so the server-side function can
+   read it.
+5. Test the deployed chat endpoint. Never add the real key to `public/app.js`,
+   another browser file, a checked-in `.env` file, or a GitHub commit.
+
+The static frontend cannot safely use a secret key directly. The browser should
+send the user's message and selected company's calculated ratios to the
+server-side endpoint; that endpoint reads `GEMINI_API_KEY` from its environment
+and returns the briefing. Do not send Yahoo statements that are not needed for
+the answer. The current rule-based briefing continues to work while the AI
+endpoint is not implemented or configured.
 
 ## Libraries and Python functions
 
@@ -255,6 +315,9 @@ charts.
 - **Flask** — serves the local dashboard and its JSON API.
 - **Plotly.js** — draws the browser charts; no chart code is mixed into the
   financial calculation module.
+- **JavaScript** — handles browser forms, company selection, chat briefings,
+  comparison tables, and Plotly charts. JavaScript comments use `//`; Python
+  comments use `#`.
 
 Core functions in `earnings_screener.py`:
 
@@ -277,6 +340,31 @@ network access:
 python -m unittest discover -s tests -v
 ```
 
+## Course-faculty walkthrough
+
+For a short demonstration, start `python app.py` and compare at least two
+tickers. Explain the dashboard in this order:
+
+1. **Input:** the user enters Yahoo Finance ticker symbols. The browser sends
+   them to the Python API as JSON.
+2. **Data retrieval:** `assess_ticker` creates a `yfinance.Ticker` object and
+   requests annual income, balance-sheet, and cash-flow statements.
+3. **Data preparation:** pandas tables are mapped by fiscal year. Helper
+   functions align the financial values and use `None` when a required value
+   is missing.
+4. **Calculations:** Python functions calculate earnings-quality signals and
+   credit ratios. `if`/`elif` conditions apply thresholds, and loops process
+   companies and annual statement periods.
+5. **Results:** the API returns JSON. JavaScript renders the comparison table,
+   interactive charts, selected-company details, and ratio briefing.
+
+Python concepts demonstrated include variables and constants,
+strings/numbers/booleans/`None`, lists/tuples/dictionaries/sets, `for` loops,
+comprehensions, conditionals, functions and return values, imports, exceptions,
+regular expressions, file output, a command-line interface, a request-handler
+class, and concurrent requests with `ThreadPoolExecutor`. The “Python concepts”
+section above includes examples and explanations.
+
 ## Deploy to Vercel
 
 1. Push the project folder to a GitHub repository.
@@ -295,6 +383,10 @@ The API accepts a JSON request like:
 No Yahoo Finance API key is required. Vercel's configured function duration is
 60 seconds to allow several company statement lookups in one request. Availability
 of that duration depends on the Vercel plan.
+
+Adding `GEMINI_API_KEY` is optional and is only needed after a server-side Gemini
+chat endpoint is implemented. It is not required for deployment, Yahoo Finance
+assessments, trend charts, or the current rule-based Ledgerly Briefings.
 
 ## Push the project to GitHub
 

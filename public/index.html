@@ -104,8 +104,13 @@
           <p>Lower scores indicate fewer earnings-quality flags</p>
         </div>
         <div id="risk-chart" class="plotly-chart" aria-label="Risk scores by company"></div>
+        <div class="section-title trend-title">
+          <div><span class="section-number">02</span><h3>Trend analysis</h3></div>
+          <p>Compare annual earnings-quality risk scores over time</p>
+        </div>
+        <div id="comparison-trend-chart" class="plotly-chart trend-chart" aria-label="Annual risk-score trends compared across companies"></div>
         <div class="section-title ratio-comparison-title">
-          <div><span class="section-number">02</span><h3>Compare financial ratios</h3></div>
+          <div><span class="section-number">03</span><h3>Compare financial ratios</h3></div>
           <label class="chart-select-label" for="ratio-selector">Choose a ratio
             <select id="ratio-selector"></select>
           </label>
@@ -129,20 +134,20 @@
           </label>
         </div>
         <div class="section-title">
-          <div><span class="section-number">03</span><h3>Earnings quality</h3></div>
+          <div><span class="section-number">04</span><h3>Earnings quality</h3></div>
           <p>Five signals from the latest annual statements</p>
         </div>
         <div id="earnings-grid" class="earnings-grid"></div>
 
         <div class="section-title credit-title">
-          <div><span class="section-number">04</span><h3>Credit fundamentals</h3></div>
+          <div><span class="section-number">05</span><h3>Credit fundamentals</h3></div>
           <p>Liquidity, leverage, coverage &amp; profitability</p>
         </div>
         <div id="credit-grid" class="credit-grid"></div>
 
         <div class="history-panel">
           <div class="history-heading">
-            <div><span class="section-number">05</span><h3>Annual trend</h3></div>
+            <div><span class="section-number">06</span><h3>Annual trend</h3></div>
             <span class="history-caption">Available Yahoo Finance periods</span>
           </div>
           <div id="history-chart" class="plotly-chart history-chart" aria-label="Annual risk-score trend"></div>
@@ -169,6 +174,32 @@
         </div>
       </section>
     </main>
+    <aside id="briefing-widget" class="briefing-widget" aria-label="Ratio briefing assistant">
+      <section id="briefing-panel" class="briefing-panel" aria-label="Ratio briefing chat" hidden>
+        <div class="briefing-header">
+          <div class="briefing-avatar" aria-hidden="true">L</div>
+          <div class="briefing-title">
+            <strong>Ledgerly briefings</strong>
+            <span id="briefing-context">Ratio-based explainer</span>
+          </div>
+          <button id="briefing-close" class="briefing-close" type="button" aria-label="Close briefing assistant">×</button>
+        </div>
+        <div id="briefing-messages" class="briefing-messages" aria-live="polite">
+          <div class="chat-message assistant-message">
+            Hi! I can give a short, ratio-based briefing for a company in your latest comparison. Try asking “brief this company” or “what should I watch?”
+          </div>
+        </div>
+        <form id="briefing-form" class="briefing-form">
+          <label class="sr-only" for="briefing-input">Ask for a ratio briefing</label>
+          <input id="briefing-input" type="text" maxlength="240" placeholder="Ask about this company…" autocomplete="off" />
+          <button type="submit" aria-label="Send question">↗</button>
+        </form>
+        <p class="briefing-note">Rule-based ratio briefing · Not investment advice</p>
+      </section>
+      <button id="briefing-toggle" class="briefing-toggle" type="button" aria-expanded="false" aria-controls="briefing-panel">
+        <span class="chat-icon" aria-hidden="true">✳</span><span>Briefing</span>
+      </button>
+    </aside>
     <footer>
       <a class="brand footer-brand" href="/"><span>ledgerly<span class="brand-period">.</span></span></a>
       <span>Independent screening tool · Not investment advice</span>
