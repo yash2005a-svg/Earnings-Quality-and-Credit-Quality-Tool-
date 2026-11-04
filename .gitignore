@@ -1,0 +1,17 @@
+# Keep local Python environments and bytecode out of the repository.
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+# Keep company datasets and generated financial reports local.
+*.csv
+*_assessment.json
+*_ratios.csv
+redflag_charts.png
+
+# Local editor and operating-system files.
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

@@ -1,0 +1,7 @@
+{
+  "functions": {
+    "api/assessment.py": {
+      "maxDuration": 60
+    }
+  }
+}
