@@ -339,7 +339,7 @@ form.addEventListener("submit", async (event) => {
   }
 });
 
-// Keep the briefing assistant grounded in the displayed company's calculated ratios.
+// Add chat replies as plain text so ticker names and questions are not treated as HTML.
 function createChatMessage(message, role) {
     const bubble = document.createElement("div");
     bubble.className = `chat-message ${role}-message`;
@@ -352,48 +352,146 @@ function getRatio(report, name) {
     return report.credit_ratios.find((ratio) => ratio.name === name);
 }
 
+// Turn an available annual score series into a cautious description, not a forecast.
+function describeTrend(report) {
+    const history = report.history.filter((period) => period.score !== null);
+    if (history.length < 2) {
+      return `There is only ${history.length} scored annual period available for ${report.ticker}, so I can’t describe a direction yet.`;
+    }
+    const first = history[0];
+    const latest = history.at(-1);
+    const change = Math.round((latest.score - first.score) * 100);
+    if (change > 0) {
+      return `The screening score rose ${change} percentage points, from ${Math.round(first.score * 100)}% in ${first.period} to ${Math.round(latest.score * 100)}% in ${latest.period}. That means more of this screen’s checks were flagged; it is not evidence by itself that the business or share price will worsen.`;
+    }
+    if (change < 0) {
+      return `The screening score fell ${Math.abs(change)} percentage points, from ${Math.round(first.score * 100)}% in ${first.period} to ${Math.round(latest.score * 100)}% in ${latest.period}. That is an improvement in this screen’s signals, not proof that every part of the business improved.`;
+    }
+    return `The available scores are unchanged at ${Math.round(latest.score * 100)}% from ${first.period} to ${latest.period}. The underlying ratios can still move, so check the individual signals as well.`;
+}
+
+// Find the specific statement signal a question refers to and explain its meaning.
+function findAskedMetric(report, question) {
+    const normalized = question.toLowerCase();
+    const metricTerms = [
+      { match: /cash conversion|cash convert|operating cash flow.*net income|cfo.*profit/, name: "Cash conversion", meaning: "It compares operating cash flow with positive net income. Low conversion can mean reported profit has not yet turned into operating cash; inspect working capital and the cash-flow statement before concluding why." },
+      { match: /accrual/, name: "Accruals", meaning: "It compares net income not covered by operating cash flow with average assets. A high result is a prompt to inspect earnings quality and the underlying adjustments, not proof of manipulation." },
+      { match: /inventory|inventories|stock build|stock buildup/, name: "Stock build-up", meaning: "It compares inventory growth with revenue. A high result can be consistent with stock building faster than sales, but seasonality and industry context matter." },
+      { match: /margin jump|margin change|profit margin change/, name: "Margin jump", meaning: "It is the change in net profit margin from the previous available annual period. A sudden change deserves context: revenue mix, costs, tax, and one-off items can all affect it." },
+      { match: /cash stress|cash flow stress|financing cash|negative cash flow/, name: "Cash stress", meaning: "This check looks for negative operating cash flow, especially when financing cash flow is positive. It is a funding-risk signal to investigate, not a diagnosis on its own." },
+      { match: /current ratio|liquidity|short.term/, name: "Current ratio", meaning: "It compares current assets with current liabilities. Below 1x means current liabilities exceed reported current assets at that date; asset quality and liability timing still matter." },
+      { match: /debt.to.equity|debt equity|leverage|borrowings?/, name: "Debt-to-equity", meaning: "It compares reported debt with shareholders’ equity. Higher leverage can increase repayment sensitivity; compare peers, debt maturities, and cash generation." },
+      { match: /liabilities.to.assets|liabilities assets/, name: "Liabilities-to-assets", meaning: "It shows the share of reported assets funded by liabilities. Interpret it with the type and maturity of liabilities and the company’s business model." },
+      { match: /interest cover|interest coverage|cover interest/, name: "Interest coverage", meaning: "It compares EBIT with interest expense. Lower coverage can mean less room to absorb weaker operating earnings; this value may be unavailable when Yahoo omits interest expense." },
+      { match: /cash ratio|cash reserve/, name: "Cash ratio", meaning: "It compares cash and equivalents with current liabilities. It is a narrow liquidity measure and excludes receivables and inventory." },
+      { match: /return on assets|roa|asset return/, name: "Return on assets", meaning: "It compares net income with average assets. It describes profit generated relative to the asset base; capital intensity and industry differences affect comparisons." },
+      { match: /net margin|net profit margin|profitability/, name: "Net profit margin", meaning: "It is net income as a share of revenue. It shows how much reported profit remains per unit of revenue, but one-off items and business mix can change it." },
+      { match: /debt.*ebitda|ebitda.*debt/, name: "Debt / EBITDA", meaning: "It compares reported debt with EBITDA. It is a simplified leverage indicator, not a repayment schedule; EBITDA excludes interest, tax, depreciation, and amortization." },
+      { match: /cash flow.*debt|operating cash.*debt/, name: "Operating cash flow / debt", meaning: "It compares a year of operating cash flow with reported debt. It is a rough cash-generation indicator, not a promise that all cash can go to debt repayment." },
+    ];
+    const metric = metricTerms.find((item) => item.match.test(normalized));
+    if (!metric) return null;
+
+    const check = report.earnings_quality.checks.find((item) => item.name === metric.name);
+    const ratio = getRatio(report, metric.name);
+    const value = check ? check.value : ratio?.value;
+    const unit = check ? check.unit : ratio?.unit;
+    if (value === null || value === undefined) {
+      return `${metric.name} for ${report.ticker} is not available in the returned annual data. ${metric.meaning} Check the source statements or use another period if Yahoo has more complete coverage.`;
+    }
+    const scoreText = check
+      ? `Screen result: ${checkLabel(check)} (${check.points}/2 points).`
+      : "";
+    return `${metric.name} for ${report.ticker} is ${formatRatio(value, unit)}. ${scoreText} ${metric.meaning}`;
+}
+
+// Identify useful findings using the same transparent thresholds as the dashboard.
+function analyzeCompany(report) {
+    const flagged = report.earnings_quality.checks.filter((check) => check.points === 2);
+    const watched = report.earnings_quality.checks.filter((check) => check.points === 1);
+    const clean = report.earnings_quality.checks.filter((check) => check.points === 0);
+    const unavailable = report.earnings_quality.checks.filter((check) => check.points === null);
+    const priorities = [];
+    if (flagged.length) priorities.push(`Highest-priority signal${flagged.length === 1 ? "" : "s"}: ${flagged.map((check) => check.name).join(", ")}.`);
+    if (watched.length) priorities.push(`Worth monitoring: ${watched.map((check) => check.name).join(", ")}.`);
+    const currentRatio = getRatio(report, "Current ratio");
+    if (currentRatio?.value !== null && currentRatio?.value !== undefined) {
+      if (currentRatio.value < 1) {
+        priorities.push(`Current ratio is ${formatRatio(currentRatio.value, "x")}; short-term liquidity is a sensible area to investigate.`);
+      }
+    }
+    const debtToEquity = getRatio(report, "Debt-to-equity");
+    if (debtToEquity?.value !== null && debtToEquity?.value !== undefined && debtToEquity.value > 2) {
+      priorities.push(`Debt-to-equity is ${formatRatio(debtToEquity.value, "x")}; review debt maturities and compare with similar businesses.`);
+    }
+    const history = report.history.filter((period) => period.score !== null);
+    if (history.length >= 2 && history.at(-1).score > history[0].score) {
+      priorities.push("The score is higher than at the start of the available history; inspect which individual checks changed year by year.");
+    }
+    if (unavailable.length) priorities.push(`Data gap: ${unavailable.map((check) => check.name).join(", ")} could not be scored.`);
+    return { priorities, notFlagged: clean };
+}
+
+// Compare the currently assessed companies without calling one the best investment.
+function compareCompanies() {
+    const reports = [...reportsByTicker.values()];
+    if (reports.length < 2) return "Enter at least two tickers in the comparison form to compare companies.";
+    const ranked = [...reports].sort((first, second) =>
+      first.earnings_quality.score - second.earnings_quality.score);
+    const lowest = ranked[0];
+    const highest = ranked.at(-1);
+    if (lowest.earnings_quality.score === highest.earnings_quality.score) {
+      return `The available companies have the same overall screening score (${Math.round(lowest.earnings_quality.score * 100)}%). Compare the individual signals and data gaps below; an equal score does not mean the companies are alike.`;
+    }
+    return `${lowest.ticker} has the lowest current screening score (${Math.round(lowest.earnings_quality.score * 100)}%), and ${highest.ticker} the highest (${Math.round(highest.earnings_quality.score * 100)}%). This compares only the available earnings-quality checks; it does not rank valuation, future returns, or overall business quality. Open the comparison table and select each company to inspect what drives the difference.`;
+}
+
 function buildRatioBriefing(report, question) {
     if (!report) {
-      return "Run a company comparison first. I can then summarize the selected company’s earnings-quality score, annual trend, and available credit ratios.";
+      return "Run a company comparison first. Then I can explain a metric, describe the annual trend, compare tickers, or highlight signals and missing data.";
     }
 
-    const normalizedQuestion = question.toLowerCase();
+    const normalizedQuestion = question.toLowerCase().replace(/[’‘]/g, "'");
     const rating = report.earnings_quality.rating;
     const score = `${Math.round(report.earnings_quality.score * 100)}%`;
-    const currentRatio = getRatio(report, "Current ratio");
-    const debtToEquity = getRatio(report, "Debt-to-equity");
-    const cashFlowToDebt = getRatio(report, "Operating cash flow / debt");
-    const history = report.history.filter((period) => period.score !== null);
-    const firstScore = history[0];
-    const latestScore = history.at(-1);
-    const trendText = firstScore && latestScore
-      ? firstScore.period === latestScore.period
-        ? `Only ${latestScore.period} has a score to compare.`
-        : `The annual risk score moved from ${Math.round(firstScore.score * 100)}% in ${firstScore.period} to ${Math.round(latestScore.score * 100)}% in ${latestScore.period}.`
-      : "There is not enough scored annual history to describe a trend.";
-    const ratioText = [
-      currentRatio ? `Current ratio: ${formatRatio(currentRatio.value, currentRatio.unit)}.` : "Current ratio: not available.",
-      debtToEquity ? `Debt-to-equity: ${formatRatio(debtToEquity.value, debtToEquity.unit)}.` : "Debt-to-equity: not available.",
-      cashFlowToDebt ? `Operating cash flow/debt: ${formatRatio(cashFlowToDebt.value, cashFlowToDebt.unit)}.` : "Operating cash flow/debt: not available.",
-    ].join(" ");
+    const trends = /trend|history|year.by.year|over time|changed/.test(normalizedQuestion);
+    const compare = /compare|comparison|which company|between (these|them)|versus|\bvs\b|better than/.test(normalizedQuestion);
+    const strengths = /strength|positive|good sign|what is going well|what looks good/.test(normalizedQuestion);
+    const watch = /watch|risk|concern|weakness|red flag|investigate|worry|problem|issue|recommend|next step|what should i do|what should i check/.test(normalizedQuestion);
+    const summary = /summary|summari[sz]e|brief|overall|overview|company doing|how is .* doing/.test(normalizedQuestion);
+    const metricAnswer = findAskedMetric(report, normalizedQuestion);
+    if (metricAnswer) return metricAnswer;
+    if (compare) return compareCompanies();
+    if (trends) return `${describeTrend(report)} ${report.ticker}'s latest rating is ${rating} (${score}).`;
 
-    if (/trend|history|year|change|over time/.test(normalizedQuestion)) {
-      return `${report.ticker}: ${trendText} A rising score means more of the checks were flagged; it is a screening signal, not a forecast.`;
+    const analysis = analyzeCompany(report);
+    if (strengths) {
+      const cleanChecks = analysis.notFlagged;
+      if (!cleanChecks.length) {
+        return `${report.ticker} has no earnings-quality checks scored within their thresholds in the latest period. The current rating is ${rating} (${score}); review the flagged checks and missing data before treating any ratio as a strength.`;
+      }
+      return `Signals not flagged in the latest screen for ${report.ticker}: ${cleanChecks.map((check) => check.name).join(", ")}. This means those checks were within the screen's thresholds for the reported year; it does not establish that the business is strong overall.`;
     }
-    if (/credit|liquid|debt|ratio|borrow|leverage/.test(normalizedQuestion)) {
-      const liquidityNote = currentRatio?.value !== null && currentRatio?.value !== undefined
-        ? currentRatio.value < 1
-          ? "The current ratio is below 1x, so short-term liquidity merits closer review."
-          : "The current ratio is above 1x; compare it with peers and the company’s own history."
-        : "Liquidity data is incomplete, so the current ratio cannot be interpreted.";
-      const leverageNote = debtToEquity?.value !== null && debtToEquity?.value !== undefined
-        ? debtToEquity.value > 2
-          ? "Debt-to-equity is above 2x; check debt maturities and sector norms."
-          : "Debt-to-equity is not above the simple 2x review threshold used in this briefing."
-        : "Debt-to-equity is unavailable.";
-      return `${report.ticker}: ${ratioText} ${liquidityNote} ${leverageNote} These are prompts for review, not universal credit limits.`;
+    if (watch) {
+      return analysis.priorities.length
+        ? `For ${report.ticker}, I would investigate these points first: ${analysis.priorities.slice(0, 4).join(" ")} Start with the source statements, then compare against prior years and similar companies; the screen alone can’t establish a cause.`
+        : `${report.ticker} has a ${rating} screening rating (${score}) and no specific earnings checks flagged in the latest period. A useful next step is to review its full statements, debt maturities, and peer context; this screen cannot determine whether it is a good investment.`;
     }
-    return `${report.ticker} has a ${rating} earnings-quality risk rating (${score}). ${trendText} ${ratioText} Review the underlying statements and sector context before drawing conclusions; this screening summary is not a buy/sell recommendation.`;
+    if (summary) {
+      const cleanSummary = analysis.notFlagged.length
+        ? `Not flagged by this screen: ${analysis.notFlagged.map((check) => check.name).join(", ")}.`
+        : "";
+      return `${report.ticker}'s latest earnings-quality rating is ${rating} (${score}). ${analysis.priorities.slice(0, 2).join(" ")} ${cleanSummary} ${describeTrend(report)} This is a preliminary screen from Yahoo's reported annual data, not a complete view of the company.`;
+    }
+
+    if (/forecast|future|share price|stock price|valuation|news|latest announcement|management|competitor|industry outlook|should i buy|should i sell/.test(normalizedQuestion)) {
+      return `That needs information Ledgerly does not currently fetch (such as live news, market prices, valuation, or forecasts), so I can’t answer it reliably from this report. For ${report.ticker}, I can explain the available statements, the ${rating} screening score (${score}), a particular ratio, annual trend, or points to investigate.`;
+    }
+    const relevantObservation = analysis.priorities[0]
+      || (analysis.notFlagged.length
+        ? `The latest screen did not flag ${analysis.notFlagged.map((check) => check.name).join(", ")}.`
+        : "Some checks may not have enough data to score.");
+    return `I can help with that from ${report.ticker}'s available annual report, but this version is a transparent, rule-based briefing rather than a general AI. ${relevantObservation} Try asking “why is cash conversion flagged?”, “what changed over time?”, “compare the companies”, “what should I investigate?”, or “what does debt-to-equity mean?”.`;
 }
 
 const briefingPanel = document.querySelector("#briefing-panel");
@@ -420,4 +518,13 @@ document.querySelector("#briefing-form").addEventListener("submit", (event) => {
     createChatMessage(question, "user");
     createChatMessage(buildRatioBriefing(selectedReport, question), "assistant");
     chatInput.value = "";
+});
+
+// Example-question buttons let users explore different briefing topics quickly.
+document.querySelectorAll(".briefing-prompts button").forEach((promptButton) => {
+    promptButton.addEventListener("click", () => {
+      const question = promptButton.dataset.prompt;
+      createChatMessage(question, "user");
+      createChatMessage(buildRatioBriefing(selectedReport, question), "assistant");
+    });
 });

@@ -186,12 +186,18 @@
         </div>
         <div id="briefing-messages" class="briefing-messages" aria-live="polite">
           <div class="chat-message assistant-message">
-            Hi! I can give a short, ratio-based briefing for a company in your latest comparison. Try asking “brief this company” or “what should I watch?”
+            Ask about this comparison in your own words. I can explain a ratio, summarize the trend, compare companies, point out signals to investigate, or suggest what to check next.
+          </div>
+          <div class="briefing-prompts" aria-label="Example questions">
+            <button type="button" data-prompt="Give me an overall summary">Overall summary</button>
+            <button type="button" data-prompt="What should I investigate first?">What to investigate?</button>
+            <button type="button" data-prompt="Compare the companies">Compare companies</button>
+            <button type="button" data-prompt="Explain the annual trend">Explain trend</button>
           </div>
         </div>
         <form id="briefing-form" class="briefing-form">
           <label class="sr-only" for="briefing-input">Ask for a ratio briefing</label>
-          <input id="briefing-input" type="text" maxlength="240" placeholder="Ask about this company…" autocomplete="off" />
+          <input id="briefing-input" type="text" maxlength="500" placeholder="Ask about the data, risks, or next steps…" autocomplete="off" />
           <button type="submit" aria-label="Send question">↗</button>
         </form>
         <p class="briefing-note">Rule-based ratio briefing · Not investment advice</p>

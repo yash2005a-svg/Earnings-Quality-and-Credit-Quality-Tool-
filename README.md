@@ -259,9 +259,16 @@ changes the data used for the next answer.
 
 The current assistant is intentionally **rule-based**: it summarizes values
 already returned by Ledgerly and applies transparent, simple checks such as a
-current ratio below 1x. It does not call an AI model and does not provide
-personalized investment or credit advice. This lets the chat interface work
-while a separate recommendation service is being prepared.
+current ratio below 1x. It is designed to respond to varied questions about
+individual ratios, earnings-quality checks, annual trends, company comparisons,
+positive signals, risks, data gaps, and practical follow-up checks. Questions
+about live news, future share prices, or valuation are identified as outside the
+available data instead of receiving a made-up answer.
+
+The assistant’s observations are derived from the rules and report data; they
+are not open-ended AI reasoning. It does not call an AI model and does not
+provide personalized investment or credit advice. This lets the chat interface
+work while a separate recommendation service is being prepared.
 
 ### Connecting the recommendation API later
 
@@ -272,7 +279,8 @@ and send requests from a Vercel server-side function—not browser JavaScript—
 secrets are not exposed to visitors. To connect it correctly, the project will
 need the API URL, expected JSON request fields, response shape, and
 authentication method. Until those details are supplied, the rule-based
-briefing remains the working fallback.
+briefing remains the working fallback. Adding a key to Vercel by itself does
+not change the chat behavior.
 
 ### Optional Gemini API setup for a future AI briefing
 
