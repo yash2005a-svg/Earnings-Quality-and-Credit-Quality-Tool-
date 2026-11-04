@@ -28,6 +28,120 @@ The user interface is **not embedded in the Python files**. `public/index.html`,
 `public/styles.css`, and `public/app.js` are separate presentation files;
 `earnings_screener.py` contains the Python-only financial logic.
 
+## Python concepts used in this project
+
+This section is a guide to the Python ideas visible in the assessment code. The
+main examples are in `earnings_screener.py`; the browser files use JavaScript,
+HTML, and CSS rather than Python.
+
+### Variables and constants
+
+Variables give useful names to values, so later code can use them:
+
+```python
+ticker = ticker_symbol.strip().upper()
+company = ticker_factory(ticker)
+```
+
+`ticker` and `company` are variables: their values are assigned while the program
+runs. Uppercase names such as `MAX_TICKERS` and `STATEMENT_LABELS` represent
+constants—values that the code intends to keep fixed.
+
+### Data types and data structures
+
+- **Strings (`str`)** represent ticker symbols, statement names, and messages.
+- **Integers (`int`)** represent fiscal years and point scores.
+- **Floating-point numbers (`float`)** represent financial values and ratios.
+- **Booleans (`bool`)** represent yes/no conditions such as whether cash flow is negative.
+- **`None`** represents a missing value; the code does not treat unavailable Yahoo data as zero.
+- **Lists** store ordered items, such as a company's yearly records.
+- **Dictionaries** map names to values, such as the statement line aliases or an assessment report.
+- **Tuples** group fixed items, such as the five named earnings-quality checks.
+- **Sets** collect distinct fiscal years.
+
+Pandas `DataFrame` objects are another important data structure: Yahoo Finance
+statements are returned as tables, and pandas helps align their rows and columns.
+
+### Input, output, and type conversion
+
+`argparse` reads the ticker and optional output folder from the command line.
+`input` is not used: a command-line argument makes the run easy to repeat. The
+program outputs a short summary with `print`, writes report files with
+`Path.write_text` and `DataFrame.to_csv`, and converts statement entries to
+numeric values with `pandas.to_numeric`.
+
+### Conditions and comparisons
+
+An `if` statement chooses what the program should do when a condition is true.
+`elif` checks another possibility, and `else` handles the remaining case. For
+example, `_ratio` checks that the numerator and denominator exist and that the
+denominator is not zero before dividing. Comparisons such as `score > 0.75`
+select a risk rating.
+
+### Loops and comprehensions
+
+A `for` loop repeats an operation for each item. The assessment loops over fiscal
+years and statement lines to create a record for each annual period. List and set
+comprehensions provide shorter ways to build collections; for example, the code
+uses a set comprehension to gather distinct statement years.
+
+### Functions, parameters, and return values
+
+A function packages a task under a name. Parameters provide its inputs, and
+`return` sends its result back to its caller. For example:
+
+```python
+def _ratio(numerator, denominator):
+    if numerator is None or denominator is None or denominator == 0:
+        return None
+    return numerator / denominator
+```
+
+This helper keeps the same missing-value and divide-by-zero rule wherever the
+assessment calculates a ratio. Other functions separate data retrieval, scoring,
+credit-ratio calculations, and report saving into explainable steps.
+
+### Imports, modules, and libraries
+
+Python's `import` statement makes code from a module available in a file. Standard
+library modules used here include `argparse`, `json`, `math`, `re`, `pathlib`,
+`http.server`, and `concurrent.futures`. Installed libraries include:
+
+- **yfinance** to request annual company financial statements.
+- **pandas** to read, align, and export statement data.
+- **Flask** to serve the local webpage and API.
+
+The charts are made by **Plotly.js** in the separate browser frontend; Python does
+not calculate or draw those charts.
+
+### Errors and validation
+
+`try` and `except` allow a program to handle a specific operation that can fail.
+For example, the API reports a clear error if request JSON cannot be read or a
+ticker is invalid. `raise ValueError(...)` stops an invalid assessment with an
+explanation rather than returning an incomplete report that looks successful.
+
+### Files, command-line execution, and reusable code
+
+`pathlib.Path` creates report file paths and saves the results. The condition
+`if __name__ == "__main__":` runs the command-line interface only when
+`earnings_screener.py` is started as a script; another file can import its
+functions without starting that interface.
+
+### Classes and API request handlers
+
+The Vercel endpoint defines a `handler` class based on Python's
+`BaseHTTPRequestHandler`. The class groups request-handling behavior, and its
+`do_POST` method processes an HTTP POST request. The local Flask API provides a
+second, convenient way to serve the same assessment on a computer.
+
+### Concurrent work
+
+The multi-company endpoint uses `ThreadPoolExecutor` to request assessments for
+several tickers at the same time. `as_completed` processes results as each Yahoo
+request finishes. The output is reordered to match the user's ticker list, so
+concurrent completion does not scramble the comparison table.
+
 ## Run it locally
 
 Use Python 3.10 or later. From the project folder, install the packages:
@@ -181,3 +295,19 @@ The API accepts a JSON request like:
 No Yahoo Finance API key is required. Vercel's configured function duration is
 60 seconds to allow several company statement lookups in one request. Availability
 of that duration depends on the Vercel plan.
+
+## Push the project to GitHub
+
+The repository is initialized locally on the `main` branch. In PowerShell, first
+change into the project directory; Git commands run from another directory may
+show `fatal: not a git repository`:
+
+```powershell
+Set-Location "C:\Users\Yash\OneDrive\Documents\python project"
+git status
+git push -u origin main
+```
+
+If GitHub requests an account, authenticate as the account that owns the
+repository. `.gitignore` keeps the old company CSV files, generated reports,
+charts, and Python cache out of the commit.
